@@ -111,7 +111,9 @@ void UVRM4U_RenderSubsystem::OnPostOpaque(FPostOpaqueRenderParameters& Parameter
 	if (CaptureList.Num() == 0) return;
 
 	if (bIsPlay) {
-		if (Parameters.View->PlayerIndex == INDEX_NONE) return;
+		if (Parameters.View->bIsOfflineRender == false) {
+			if (Parameters.View->PlayerIndex == INDEX_NONE) return;
+		}
 	}
 
 	{
@@ -229,7 +231,9 @@ void UVRM4U_RenderSubsystem::OnOverlay(FPostOpaqueRenderParameters& Parameters) 
 	if (CaptureList.Num() == 0) return;
 
 	if (bIsPlay) {
-		if (Parameters.View->PlayerIndex == INDEX_NONE) return;
+		if (Parameters.View->bIsOfflineRender == false) {
+			if (Parameters.View->PlayerIndex == INDEX_NONE) return;
+		}
 	}
 
 	for (auto c : CaptureList) {

@@ -10,8 +10,8 @@
 class FVrmSceneViewExtension : public FSceneViewExtensionBase
 {
 	enum ECapturePass{
-		BeforeTonemap,
-		AfterTonemap,
+		PreTonemap,
+		PostTonemap,
 		LastPass,
 	};
 public:
@@ -31,7 +31,7 @@ public:
 
 	virtual void PrePostProcessPass_RenderThread(FRDGBuilder& GraphBuilder, const FSceneView& View, const FPostProcessingInputs& Inputs) override;
 
-#if	UE_VERSION_OLDER_THAN(5,5,0)
+#if	UE_VERSION_OLDER_THAN(5,6,0)
 	virtual void SubscribeToPostProcessingPass(EPostProcessingPass Pass, FAfterPassCallbackDelegateArray& InOutPassCallbacks, bool bIsPassEnabled) override;
 #else
 	virtual void SubscribeToPostProcessingPass(EPostProcessingPass Pass, const FSceneView& InView, FPostProcessingPassDelegateArray& InOutPassCallbacks, bool bIsPassEnabled);
@@ -44,6 +44,7 @@ public:
 	virtual int32 GetPriority() const override { return 100; }
 	virtual bool IsActiveThisFrame_Internal(const FSceneViewExtensionContext& Context) const override;
 
+	FScreenPassTexture PreTonemap_RenderThread(FRDGBuilder& GraphBuilder, const FSceneView& View, const FPostProcessMaterialInputs& InOutInputs);
 	FScreenPassTexture AfterTonemap_RenderThread(FRDGBuilder& GraphBuilder, const FSceneView& View, const FPostProcessMaterialInputs& InOutInputs);
 	FScreenPassTexture LastPass_RenderThread(FRDGBuilder& GraphBuilder, const FSceneView& View, const FPostProcessMaterialInputs& InOutInputs);
 

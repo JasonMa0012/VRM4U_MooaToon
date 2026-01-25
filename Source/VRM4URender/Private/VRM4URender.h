@@ -21,6 +21,7 @@ enum EVRM4U_CaptureSource : int
 {
 	ColorTexturePostOpaque,
 	ColorTextureOverlay,
+	ColorTexturePreTonemap,
 	ColorTexturePostTonemap,
 	ColorTextureLastPass,
 	DepthTexture,
@@ -30,8 +31,6 @@ enum EVRM4U_CaptureSource : int
 
 	SceneColorTexturePostOpaque,
 	SceneColorTextureOverlay,
-	SceneColorTexturePostTonemap,
-	SceneColorTextureLastPass,
 	SceneDepthTexture,
 	//ScenePartialDepthTexture,
 
@@ -76,4 +75,7 @@ public:
 
 	void OnPIEEvent(bool bPIEBegin, bool bPIEEnd);
 #endif
+
+	static void AddCopyPass(FRDGBuilder& GraphBuilder, FIntPoint ViewRectSize, FRDGTextureRef SrcRDGTex, TObjectPtr<UTextureRenderTarget2D> RenderTarget);
+	static bool isCaptureTarget(const FSceneView* View);
 };

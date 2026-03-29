@@ -7,6 +7,10 @@
 #include "Engine/TextureRenderTarget2D.h"
 #include "RendererInterface.h"
 
+#if WITH_EDITOR
+	#include "UnrealEdMisc.h"
+#endif
+
 //#include "VRMImporterModule.h"
 
 //DECLARE_LOG_CATEGORY_EXTERN(LogVRM4URender, Verbose, All);

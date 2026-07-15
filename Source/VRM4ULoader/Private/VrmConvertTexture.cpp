@@ -29,7 +29,7 @@
 #if WITH_EDITOR
 #include "Factories.h"
 #include "Factories/TextureFactory.h"
-
+#include "MaterialShared.h"
 #endif
 
 #include <assimp/Importer.hpp>

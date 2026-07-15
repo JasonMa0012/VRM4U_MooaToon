@@ -24,12 +24,21 @@ class VRM4URENDER_API UVrmSceneCaptureComponent2D : public USceneCaptureComponen
 public:
 	
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Capture Settings")
-	TObjectPtr<UTextureRenderTarget2D> RenderTargetA;
+	TObjectPtr<UTextureRenderTarget2D> RT_BaseColor;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Capture Settings")
-	TObjectPtr<UTextureRenderTarget2D> RenderTargetB;
+	TObjectPtr<UTextureRenderTarget2D> RT_Normal;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Capture Settings")
+	TObjectPtr<UTextureRenderTarget2D> RT_Depth;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Capture Settings", meta = (UIMin = 1.0, UIMax = 10.0))
+	float RenderTargetResolutionDivisorX = 1.f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Capture Settings", meta = (UIMin = 1.0, UIMax = 10.0))
+	float RenderTargetResolutionDivisorY = 1.f;
 
 public:
+	virtual void OnComponentCreated() override;
 	virtual void OnRegister() override;
 	virtual void OnUnregister() override;
 
@@ -38,6 +47,16 @@ public:
 	virtual void TickComponent(float DeltaTime, enum ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 private:
+	void EnsureTextureTargetCreated();
+
+	FDelegateHandle handle;
+
+#if WITH_EDITOR
+	void OnCameraTransformChanged(const FVector&, const FRotator&, ELevelViewportType, int32);
+#endif
+	void OnCameraTransformChanged();
+
+	void ResizeRenderTargets();
 
 private:
 	/** This scene view extension is used to get ahold of views during the setup process. */

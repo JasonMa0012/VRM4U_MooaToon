@@ -36,7 +36,7 @@ FAnimNode_VrmVMC::~FAnimNode_VrmVMC()
 void FAnimNode_VrmVMC::Initialize_AnyThread(const FAnimationInitializeContext& Context) {
 	Super::Initialize_AnyThread(Context);
 
-	VrmMetaObject_Internal = VrmMetaObject;
+	VrmMetaObject_Internal = FSoftObjectPath(VrmMetaObject);
 	if (VrmMetaObject_Internal == nullptr && EnableAutoSearchMetaData) {
 		VrmAssetListObject_Internal = VRMUtil::GetAssetListObject(VRMGetSkinnedAsset(Context.AnimInstanceProxy->GetSkelMeshComponent()));
 		if (VrmAssetListObject_Internal) {
@@ -186,9 +186,14 @@ void FAnimNode_VrmVMC::EvaluateSkeletalControl_AnyThread(FComponentSpacePoseCont
 			auto modelBone = filterList.begin()->Value;
 #endif
 
-
 			int index = RefSkeleton.FindBoneIndex(*t.Value);
 			if (index < 0) continue;
+
+			if (bApplyEyeBone == false){
+				if (t.Key.Compare("leftEye")==0 || t.Key.Compare("rightEye")==0){
+					continue;
+				}
+			}
 
 			FBoneTransform f(FCompactPoseBoneIndex(index), modelBone);
 			//f.Transform.SetRotation(FQuat::Identity);

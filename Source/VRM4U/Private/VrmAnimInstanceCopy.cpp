@@ -322,7 +322,7 @@ bool FVrmAnimInstanceCopyProxy::Evaluate(FPoseContext& Output) {
 
 				auto& constraint = *Node_Constraint.Get();
 
-				constraint.VrmMetaObject_Internal = dstMeta;
+				constraint.VrmMetaObject_Internal = FSoftObjectPath(dstMeta);
 				constraint.bCallByAnimInstance = true;
 
 				FAnimationInitializeContext InitContext(this);
@@ -332,16 +332,7 @@ bool FVrmAnimInstanceCopyProxy::Evaluate(FPoseContext& Output) {
 					constraint.ComponentPose.SetLinkNode(&constraint);
 				}
 
-				if (0) {
-					++CalcCount;
-					FComponentSpacePoseContext InputCSPose(this);
-					for (int i = 0; i < 20; ++i) {
-						InputCSPose.Pose.InitPose(Output.Pose);
-						constraint.EvaluateComponentSpace_AnyThread(InputCSPose);
-						ConvertToLocalPoses(InputCSPose.Pose, Output.Pose);
-					}
-				}
-				else {
+				{
 					FComponentSpacePoseContext InputCSPose(this);
 					InputCSPose.Pose.InitPose(Output.Pose);
 					constraint.EvaluateComponentSpace_AnyThread(InputCSPose);
@@ -385,7 +376,7 @@ bool FVrmAnimInstanceCopyProxy::Evaluate(FPoseContext& Output) {
 
 				auto& springBone = *Node_SpringBone.Get();
 
-				springBone.VrmMetaObject_Internal = dstMeta;
+				springBone.VrmMetaObject_Internal = FSoftObjectPath(dstMeta);
 				springBone.bCallByAnimInstance = true;
 				springBone.CurrentDeltaTime = CurrentDeltaTime;
 

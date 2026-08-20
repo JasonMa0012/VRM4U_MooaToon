@@ -929,6 +929,21 @@ bool VRMConverter::ConvertModel_internal_description(UVrmAssetListObject *vrmAss
 			FSkeletalMeshLODInfo& info = sk->AddLODInfo();
 		}
 
+		bool bHasNormals = aiData->mNumMeshes > 0;
+		bool bHasTangents = aiData->mNumMeshes > 0;
+		for (uint32 MeshIndex = 0; MeshIndex < aiData->mNumMeshes; ++MeshIndex) {
+			const aiMesh* Mesh = aiData->mMeshes[MeshIndex];
+			bHasNormals &= Mesh != nullptr && Mesh->HasNormals();
+			bHasTangents &= Mesh != nullptr && Mesh->HasTangentsAndBitangents();
+		}
+
+		// Keep source normals/tangents when every submesh provides them, and
+		// only ask Unreal to recompute attributes that are missing.
+		if (FSkeletalMeshLODInfo* LODInfo = sk->GetLODInfo(0)) {
+			LODInfo->BuildSettings.bRecomputeNormals = !bHasNormals;
+			LODInfo->BuildSettings.bRecomputeTangents = !bHasTangents;
+		}
+
 
 		if (VRMConverter::Options::Get().IsVRM10Model() && VRMConverter::Options::Get().IsVRM10Bindpose() == false
 			&& VRMConverter::Options::Get().IsDebugOneBone() == false
@@ -1163,25 +1178,38 @@ bool VRMConverter::ConvertModel_internal_description(UVrmAssetListObject *vrmAss
 						meshS->UVs[u] = FVector2f(uv);
 					}
 
-					if (i < mInfo.Tangents.Num()){
+					if (i < mInfo.Normals.Num()){
 						//v.StaticMeshVertexBuffer.SetVertexTangents(currentVertex + i, FVector(1, 0, 0), FVector(0, 1, 0), FVector(0, 0, 1));
 						//v.StaticMeshVertexBuffer.SetVertexTangents(currentVertex + i, result.meshInfo[meshID].Tangents);
 						auto &n = mInfo.Normals[i];
 						FVector n_tmp(-n.X, n.Z, n.Y);
-						FVector t_tmp(-mInfo.Tangents[i].X, mInfo.Tangents[i].Z, mInfo.Tangents[i].Y);
+						const bool bHasTangent = i < mInfo.Tangents.Num();
+						FVector t_tmp = FVector::ZeroVector;
+						if (bHasTangent) {
+							t_tmp.Set(-mInfo.Tangents[i].X, mInfo.Tangents[i].Z, mInfo.Tangents[i].Y);
+						}
 
 						if (VRMConverter::Options::Get().IsVRM10Model()) {
 							n_tmp.Set(n.X, -n.Z, n.Y);
-							t_tmp.Set(mInfo.Tangents[i].X, -mInfo.Tangents[i].Z, mInfo.Tangents[i].Y);
+							if (bHasTangent) {
+								t_tmp.Set(mInfo.Tangents[i].X, -mInfo.Tangents[i].Z, mInfo.Tangents[i].Y);
+							}
 						}
 						if (VRMConverter::Options::Get().IsPMXModel() || VRMConverter::Options::Get().IsBVHModel()) {
 							FVector tmpv(-1, -1, 1);
 							n_tmp *= tmpv;
-							t_tmp *= tmpv;
+							if (bHasTangent) {
+								t_tmp *= tmpv;
+							}
 						}
 
-						t_tmp.Normalize();
 						n_tmp.Normalize();
+						if (bHasTangent) {
+							t_tmp.Normalize();
+						} else {
+							const FVector ReferenceAxis = FMath::Abs(n_tmp.Z) < 0.999f ? FVector::UpVector : FVector::ForwardVector;
+							t_tmp = (ReferenceAxis ^ n_tmp).GetSafeNormal();
+						}
 
 						meshS->TangentX = FVector3f(t_tmp);
 						meshS->TangentY = FVector3f(n_tmp ^ t_tmp);
@@ -2371,17 +2399,28 @@ bool VRMConverter::ConvertModel_internal_description(UVrmAssetListObject *vrmAss
 
 		double AnimDeltaTime = 0.f;
 		{
+			auto UpdateAnimDeltaTime = [&AnimDeltaTime](double DeltaTime) {
+				if (DeltaTime > 0.0 && (AnimDeltaTime <= 0.0 || DeltaTime < AnimDeltaTime)) {
+					AnimDeltaTime = DeltaTime;
+				}
+			};
 			for (uint32_t animNo = 0; animNo < aiData->mNumAnimations; animNo++) {
 				aiAnimation* aiA = aiData->mAnimations[animNo];
+				if (aiA->mTicksPerSecond <= 0.0) {
+					continue;
+				}
 
 				for (uint32_t chanNo = 0; chanNo < aiA->mNumChannels; chanNo++) {
 					aiNodeAnim* aiNA = aiA->mChannels[chanNo];
 
-					for (int i = 0; i < (int)(aiNA->mNumRotationKeys)-1; ++i) {
-						auto dif = (aiNA->mRotationKeys[i+1].mTime - aiNA->mRotationKeys[i].mTime) / aiA->mTicksPerSecond;
-						if (AnimDeltaTime == 0.f && dif != 0.f) {
-							AnimDeltaTime = dif;
-						}
+					for (uint32 i = 0; i + 1 < aiNA->mNumPositionKeys; ++i) {
+						UpdateAnimDeltaTime((aiNA->mPositionKeys[i + 1].mTime - aiNA->mPositionKeys[i].mTime) / aiA->mTicksPerSecond);
+					}
+					for (uint32 i = 0; i + 1 < aiNA->mNumRotationKeys; ++i) {
+						UpdateAnimDeltaTime((aiNA->mRotationKeys[i + 1].mTime - aiNA->mRotationKeys[i].mTime) / aiA->mTicksPerSecond);
+					}
+					for (uint32 i = 0; i + 1 < aiNA->mNumScalingKeys; ++i) {
+						UpdateAnimDeltaTime((aiNA->mScalingKeys[i + 1].mTime - aiNA->mScalingKeys[i].mTime) / aiA->mTicksPerSecond);
 					}
 				}
 			}
@@ -2434,8 +2473,13 @@ bool VRMConverter::ConvertModel_internal_description(UVrmAssetListObject *vrmAss
 							}
 						}
 					}
+					FTransform ReferencePose = FTransform::Identity;
+					const int32 ReferenceBoneIndex = k->GetReferenceSkeleton().FindBoneIndex(NodeName);
+					if (ReferenceBoneIndex != INDEX_NONE) {
+						ReferencePose = k->GetReferenceSkeleton().GetRefBonePose()[ReferenceBoneIndex];
+					}
 					{
-						auto ind = k->GetReferenceSkeleton().FindBoneIndex(NodeName);
+						auto ind = ReferenceBoneIndex;
 						if (ind != INDEX_NONE) {
 							ind = k->GetReferenceSkeleton().GetParentIndex(ind);
 							if (ind == INDEX_NONE) {
@@ -2453,6 +2497,8 @@ bool VRMConverter::ConvertModel_internal_description(UVrmAssetListObject *vrmAss
 							float Scale = 1.f;
 							if (VRMConverter::Options::Get().IsVRMAModel()) {
 								Scale = 100.f;
+							} else if (VRMConverter::Options::Get().IsBVHModel()) {
+								Scale = 100.f * VRMConverter::Options::Get().GetModelScale();
 							}
 							FVector pos(-v.x, v.z, v.y);
 							pos *= Scale * VRMConverter::Options::Get().GetAnimationTranslateScale();
@@ -2527,14 +2573,23 @@ bool VRMConverter::ConvertModel_internal_description(UVrmAssetListObject *vrmAss
 					if (RawTrack.RotKeys.Num() || RawTrack.PosKeys.Num() || RawTrack.ScaleKeys.Num()) {
 
 
+						const FVector3f PositionFallback = RawTrack.PosKeys.Num() > 0
+							? RawTrack.PosKeys.Last()
+							: FVector3f(ReferencePose.GetTranslation());
+						const FQuat4f RotationFallback = RawTrack.RotKeys.Num() > 0
+							? RawTrack.RotKeys.Last()
+							: FQuat4f(ReferencePose.GetRotation());
+						const FVector3f ScaleFallback = RawTrack.ScaleKeys.Num() > 0
+							? RawTrack.ScaleKeys.Last()
+							: FVector3f(ReferencePose.GetScale3D());
 						while (RawTrack.PosKeys.Num() < FrameNum) {
-							RawTrack.PosKeys.Add(FVector3f::ZeroVector);
+							RawTrack.PosKeys.Add(PositionFallback);
 						}
 						while (RawTrack.RotKeys.Num() < FrameNum) {
-							RawTrack.RotKeys.Add(FQuat4f::Identity);
+							RawTrack.RotKeys.Add(RotationFallback);
 						}
 						while (RawTrack.ScaleKeys.Num() < FrameNum) {
-							RawTrack.ScaleKeys.Add(FVector3f::OneVector);
+							RawTrack.ScaleKeys.Add(ScaleFallback);
 						}
 
 						{

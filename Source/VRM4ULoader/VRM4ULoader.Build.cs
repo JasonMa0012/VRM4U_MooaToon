@@ -44,6 +44,15 @@ public class VRM4ULoader : ModuleRules
 			}
 		}
 
+		if (Version.MajorVersion== 4 || (Version.MajorVersion == 5 && Version.MinorVersion <= 1))
+		{
+			if (Target.Platform == UnrealTargetPlatform.Win64)
+			{
+				PublicDefinitions.Add("NTDDI_WIN10_GE=0x0A00000B");
+				//PublicDefinitions.Add("NTDDI_WIN11=0x0A00000B");
+			}
+		}
+
 		PublicIncludePaths.AddRange(
 			new string[] {
 				Path.Combine(ThirdPartyPath, "assimp/include"),

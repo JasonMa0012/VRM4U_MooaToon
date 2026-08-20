@@ -2,7 +2,7 @@
 
 #include "VrmSceneCaptureComponent.h"
 #include "SceneViewExtension.h"
-#include "Runtime/Engine/Public/SceneView.h"
+//#include "Runtime/Engine/Public/SceneView.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/World.h"
@@ -11,13 +11,25 @@
 
 #include "VRM4URender.h"
 #include "VrmBPFunctionLibrary.h"
+#include "VrmCustomStencilNotification.h"
+#include "HAL/IConsoleManager.h"
 #include "Misc/EngineVersionComparison.h"
+
+#include "Camera/CameraTypes.h"
+#include "Engine/LocalPlayer.h"
+#include "SceneView.h"
+#include "Runtime/Renderer/Private/SceneRendering.h"
+#if UE_VERSION_OLDER_THAN(5,4,0)
+#else
+#include "Runtime/Renderer/Private/Substrate/Substrate.h"
+#endif
+#include "UnrealClient.h"
 
 #if WITH_EDITOR
 #include "Editor.h"
-#include "UnrealClient.h"
 #include "Slate/SceneViewport.h"
 #include "LevelEditorViewport.h"
+#include "Settings/LevelEditorViewportSettings.h"
 #endif
 
 #if	UE_VERSION_OLDER_THAN(5,3,0)
@@ -26,6 +38,61 @@
 #else
 #include "PostProcess/PostProcessMaterialInputs.h"
 #endif
+
+namespace VrmSceneCaptureLocal {
+	/**
+	 * ULocalPlayer::GetProjectionData と同じ軸拘束ロジックで透視投影行列を組む。
+	 * エディタ（非プレイ）経路でのみ使用する。
+	 */
+	static FMatrix BuildPerspectiveMatrix(
+		float FOVDegrees,
+		FIntPoint ViewportSize,
+		bool bConstrainAspectRatio,
+		float ConstrainedAspectRatio,
+		float NearPlane,
+		EAspectRatioAxisConstraint AxisConstraint)
+	{
+		const float HalfFOV = FMath::Max(0.001f, FOVDegrees) * UE_PI / 360.0f;
+
+		if (bConstrainAspectRatio && ConstrainedAspectRatio > 0.0f)
+		{
+			// 拘束ありは本体と同じ 4 引数版で一致する
+			return FReversedZPerspectiveMatrix(HalfFOV, ConstrainedAspectRatio, 1.0f, NearPlane);
+		}
+
+		const float SizeX = static_cast<float>(FMath::Max(1, ViewportSize.X));
+		const float SizeY = static_cast<float>(FMath::Max(1, ViewportSize.Y));
+
+		const bool bMaintainXFOV =
+			(AxisConstraint == AspectRatio_MaintainXFOV) ||
+			(AxisConstraint == AspectRatio_MajorAxisFOV && SizeX > SizeY);
+
+		const float XAxisMultiplier = bMaintainXFOV ? 1.0f : (SizeY / SizeX);
+		const float YAxisMultiplier = bMaintainXFOV ? (SizeX / SizeY) : 1.0f;
+
+		// MinZ == MaxZ で無限遠ファークリップ（本体と同じ挙動）
+		return FReversedZPerspectiveMatrix(
+			HalfFOV, HalfFOV, XAxisMultiplier, YAxisMultiplier, NearPlane, NearPlane);
+	}
+
+	/** アスペクト拘束時のレターボックス／ピラーボックス後の描画領域を求める */
+	static FIntPoint ComputeConstrainedSize(FIntPoint ViewportSize, bool bConstrain, float TargetAspect)
+	{
+		if (!bConstrain || TargetAspect <= 0.0f || ViewportSize.X <= 0 || ViewportSize.Y <= 0)
+		{
+			return ViewportSize;
+		}
+
+		const float ViewportAspect = static_cast<float>(ViewportSize.X) / static_cast<float>(ViewportSize.Y);
+		if (ViewportAspect > TargetAspect)
+		{
+			// ピラーボックス：横を削る
+			return FIntPoint(FMath::RoundToInt(ViewportSize.Y * TargetAspect), ViewportSize.Y);
+		}
+		// レターボックス：縦を削る
+		return FIntPoint(ViewportSize.X, FMath::RoundToInt(ViewportSize.X / TargetAspect));
+	}
+}
 
 
 
@@ -57,11 +124,27 @@ public:
 		}
 		FRDGTextureRef DstRDGTex = nullptr;
 		FRDGTextureRef SrcRDGTex = nullptr;
+#if UE_VERSION_OLDER_THAN(5,4,0)
+		const bool bUseSubstrateMaterialBuffer = false;
+		const FViewInfo* CaptureViewInfo = nullptr;
+#else
+		const FViewInfo* CaptureViewInfo = InView.bIsViewInfo ? static_cast<const FViewInfo*>(&InView) : nullptr;
+		const bool bUseSubstrateMaterialBuffer =
+			CaptureViewInfo && Substrate::IsSubstrateEnabled() &&
+			CaptureViewInfo->SubstrateViewData.SceneData &&
+			CaptureViewInfo->SubstrateViewData.SceneData->MaterialTextureArray &&
+			CaptureViewInfo->SubstrateViewData.SceneData->TopLayerTexture;
+#endif
 
 
-		if (CaptureComponentWeak.IsValid() == false) return;
 
-		if (CaptureComponentWeak->RT_BaseColor) {
+		if (RT_BaseColor) {
+			if (bUseSubstrateMaterialBuffer)
+			{
+				FVRM4URenderModule::AddSubstrateBaseColorCopyPass(GraphBuilder, *CaptureViewInfo, RT_BaseColor);
+			}
+			else
+			{
 			// base color
 			for (auto &a : RenderTargets.Output) {
 				if (a.GetTexture() == nullptr) continue;
@@ -71,11 +154,18 @@ public:
 				}
 			}
 			if (SrcRDGTex) {
-				FVRM4URenderModule::AddCopyPass(GraphBuilder, InView.UnconstrainedViewRect, SrcRDGTex, CaptureComponentWeak->RT_BaseColor);
+				FVRM4URenderModule::AddCopyPass(GraphBuilder, InView.UnconstrainedViewRect, SrcRDGTex, RT_BaseColor);
+			}
 			}
 		}
 
-		if (CaptureComponentWeak->RT_Normal) {
+		if (RT_Normal) {
+			if (bUseSubstrateMaterialBuffer)
+			{
+				FVRM4URenderModule::AddSubstrateNormalCopyPass(GraphBuilder, *CaptureViewInfo, RT_Normal);
+			}
+			else
+			{
 			// normal
 			SrcRDGTex = nullptr;
 			for (auto& a : RenderTargets.Output) {
@@ -86,17 +176,80 @@ public:
 				}
 			}
 			if (SrcRDGTex) {
-				FVRM4URenderModule::AddCopyPass(GraphBuilder, InView.UnconstrainedViewRect, SrcRDGTex, CaptureComponentWeak->RT_Normal);
+				FVRM4URenderModule::AddCopyPass(GraphBuilder, InView.UnconstrainedViewRect, SrcRDGTex, RT_Normal);
+			}
 			}
 		}
 
-		if (CaptureComponentWeak->RT_Depth) {
+		if (RT_MRS) {
+			if (bUseSubstrateMaterialBuffer)
+			{
+				FVRM4URenderModule::AddSubstrateMRSCopyPass(GraphBuilder, *CaptureViewInfo, RT_MRS);
+			}
+			else
+			{
+			// metallic / specular / roughness
+			SrcRDGTex = nullptr;
+			for (auto& a : RenderTargets.Output) {
+				if (a.GetTexture() == nullptr) continue;
+				FString s = a.GetTexture()->Name;
+				if (s.Contains("BufferB")) {
+					SrcRDGTex = a.GetTexture();
+				}
+			}
+			if (SrcRDGTex) {
+				FVRM4URenderModule::AddCopyPass(GraphBuilder, InView.UnconstrainedViewRect, SrcRDGTex, RT_MRS);
+			}
+			}
+		}
+
+		if (RT_Depth) {
 			// depth
 			SrcRDGTex = nullptr;
 			SrcRDGTex = RenderTargets.DepthStencil.GetTexture();
 			if (SrcRDGTex)
 			{
-				FVRM4URenderModule::AddCopyPass(GraphBuilder, InView.UnconstrainedViewRect, SrcRDGTex, CaptureComponentWeak->RT_Depth);
+				FVRM4URenderModule::AddCopyPass(GraphBuilder, InView.UnconstrainedViewRect, SrcRDGTex, RT_Depth);
+			}
+		}
+
+		if (RT_CustomStencil || RT_CustomDepth)
+		{
+			// r.CustomDepth=0(Disabled)の場合、Custom Depth/Stencilはそもそも存在しないため
+			// 無駄なパス追加(=不要な記述子確保)を避けるためスキップする。
+			static const auto CVarCustomDepth = IConsoleManager::Get().FindTConsoleVariableDataInt(TEXT("r.CustomDepth"));
+			const bool bCustomDepthFeatureEnabled = (CVarCustomDepth == nullptr) || (CVarCustomDepth->GetValueOnAnyThread() != 0);
+
+			if (bCustomDepthFeatureEnabled && InView.bIsViewInfo)
+			{
+				// SceneTextures->GetParameters()->CustomStencilTexture/CustomDepthTextureは、
+				// このビューでCustom Depthがまだ生成されていない場合ダミーSRV(実体は極小テクスチャ)に
+				// 静かにフォールバックすることがある(全画面が同一ピクセルをサンプリングし続け、一様な値で塗りつぶされる)。
+				// FViewInfo経由でHasBeenProducedを確認し、本当に生成済みの場合のみ使う。
+				const FViewInfo& ViewInfo = static_cast<const FViewInfo&>(InView);
+				const FCustomDepthTextures& CustomDepthTextures = ViewInfo.GetSceneTextures().CustomDepth;
+
+				if (HasBeenProduced(CustomDepthTextures.Depth))
+				{
+					if (RT_CustomStencil && CustomDepthTextures.Stencil)
+					{
+						FVRM4URenderModule::AddCustomStencilCopyPass(
+							GraphBuilder,
+							InView.UnconstrainedViewRect,
+							CustomDepthTextures.Stencil,
+							RT_CustomStencil);
+					}
+
+					if (RT_CustomDepth)
+					{
+						FRDGTextureSRVRef DepthSRV = GraphBuilder.CreateSRV(CustomDepthTextures.Depth);
+						FVRM4URenderModule::AddCustomDepthCopyPass(
+							GraphBuilder,
+							InView.UnconstrainedViewRect,
+							DepthSRV,
+							RT_CustomDepth);
+					}
+				}
 			}
 		}
 
@@ -121,13 +274,101 @@ public:
 	}
 
 public:
-	TWeakObjectPtr<UVrmSceneCaptureComponent2D> CaptureComponentWeak;
+	UPROPERTY()
+	TObjectPtr<UTextureRenderTarget2D> RT_BaseColor = nullptr;
+
+	UPROPERTY()
+	TObjectPtr<UTextureRenderTarget2D> RT_Normal = nullptr;
+
+	UPROPERTY()
+	TObjectPtr<UTextureRenderTarget2D> RT_MRS = nullptr;
+
+	UPROPERTY()
+	TObjectPtr<UTextureRenderTarget2D> RT_Depth = nullptr;
+
+	UPROPERTY()
+	TObjectPtr<UTextureRenderTarget2D> RT_CustomStencil = nullptr;
+
+	UPROPERTY()
+	TObjectPtr<UTextureRenderTarget2D> RT_CustomDepth = nullptr;
 };
 
 
 UVrmSceneCaptureComponent2D::UVrmSceneCaptureComponent2D(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
+	PrimaryComponentTick.bCanEverTick = true;
+	// ボーン・カメラの最終姿勢が確定した後に投影行列を読む
+	PrimaryComponentTick.TickGroup = TG_PostUpdateWork;
+
+	ApplyViewMode(VMI_Unlit, true, ShowFlags);
+
+	ShowFlags.SetPostProcessing(false);
+	ShowFlags.SetMotionBlur(false);
+	ShowFlags.SetTemporalAA(false);
+	ShowFlags.SetAntiAliasing(false);
+
+#if !UE_VERSION_OLDER_THAN(5,2,0)
+	// UE 5.2-5.8 common settings.
+	ShowFlags.DisableAdvancedFeatures();
+
+#if !UE_VERSION_OLDER_THAN(5,6,0)
+	// Added in UE 5.6 for custom render passes and unlit scene captures.
+	ShowFlags.DisableFeaturesForUnlit();
+#endif
+
+	ShowFlags.SetLighting(false);
+	ShowFlags.SetGlobalIllumination(false);
+	ShowFlags.SetLumenGlobalIllumination(false);
+	ShowFlags.SetLumenReflections(false);
+	ShowFlags.SetLumenScreenTraces(false);
+	ShowFlags.SetLumenDetailTraces(false);
+	ShowFlags.SetLumenGlobalTraces(false);
+	ShowFlags.SetLumenFarFieldTraces(false);
+	ShowFlags.SetLumenSecondaryBounces(false);
+	ShowFlags.SetLumenShortRangeAmbientOcclusion(false);
+	ShowFlags.SetScreenSpaceReflections(false);
+	ShowFlags.SetReflectionEnvironment(false);
+	ShowFlags.SetSkyLighting(false);
+	ShowFlags.SetDirectLighting(false);
+	ShowFlags.SetDeferredLighting(false);
+	ShowFlags.SetDynamicShadows(false);
+	ShowFlags.SetContactShadows(false);
+	ShowFlags.SetCapsuleShadows(false);
+	ShowFlags.SetRayTracedDistanceFieldShadows(false);
+	ShowFlags.SetAmbientOcclusion(false);
+	ShowFlags.SetScreenSpaceAO(false);
+	ShowFlags.SetDistanceFieldAO(false);
+
+#if !UE_VERSION_OLDER_THAN(5,5,0)
+	// MegaLights was added in UE 5.5.
+	ShowFlags.SetMegaLights(false);
+#endif
+
+	ShowFlags.SetLightFunctions(false);
+	ShowFlags.SetTexturedLightProfiles(false);
+	ShowFlags.SetLightShafts(false);
+	ShowFlags.SetVolumetricLightmap(false);
+	ShowFlags.SetIndirectLightingCache(false);
+	ShowFlags.SetAtmosphere(false);
+	ShowFlags.SetCloud(false);
+	ShowFlags.SetFog(false);
+	ShowFlags.SetVolumetricFog(false);
+	ShowFlags.SetRefraction(false);
+	ShowFlags.SetSeparateTranslucency(false);
+
+#if !UE_VERSION_OLDER_THAN(5,3,0)
+	// Heterogeneous Volumes was added in UE 5.3.
+	ShowFlags.SetHeterogeneousVolumes(false);
+#endif
+
+	ShowFlags.SetSubsurfaceScattering(false);
+
+	PostProcessSettings.bOverride_DynamicGlobalIlluminationMethod = true;
+	PostProcessSettings.DynamicGlobalIlluminationMethod = EDynamicGlobalIlluminationMethod::None;
+	PostProcessSettings.bOverride_ReflectionMethod = true;
+	PostProcessSettings.ReflectionMethod = EReflectionMethod::None;
+#endif
 }
 
 void UVrmSceneCaptureComponent2D::EnsureTextureTargetCreated()
@@ -165,13 +406,17 @@ void UVrmSceneCaptureComponent2D::EnsureTextureTargetCreated()
 
 	TextureTarget = NewTextureTarget;
 
-	ResizeRenderTargets();
+	ResizeRenderTargets(FIntPoint(Width, Height));
 }
 
 void UVrmSceneCaptureComponent2D::OnComponentCreated()
 {
 	Super::OnComponentCreated();
 	EnsureTextureTargetCreated();
+
+#if WITH_EDITOR
+	VrmCustomStencilNotification::TryShow(*this);
+#endif
 }
 
 void UVrmSceneCaptureComponent2D::OnRegister()
@@ -188,7 +433,13 @@ void UVrmSceneCaptureComponent2D::OnRegister()
 	if (!SceneViewExtension.IsValid())
 	{
 		SceneViewExtension = FSceneViewExtensions::NewExtension<FVrmSceneCaptureSceneViewExtension>();
-		SceneViewExtension->CaptureComponentWeak = this;
+
+		SceneViewExtension->RT_BaseColor = RT_BaseColor;
+		SceneViewExtension->RT_Normal = RT_Normal;
+		SceneViewExtension->RT_MRS = RT_MRS;
+		SceneViewExtension->RT_Depth = RT_Depth;
+		SceneViewExtension->RT_CustomStencil = RT_CustomStencil;
+		SceneViewExtension->RT_CustomDepth = RT_CustomDepth;
 	}
 
 
@@ -209,6 +460,13 @@ void UVrmSceneCaptureComponent2D::OnUnregister()
 	if (SceneViewExtension.IsValid())
 	{
 		SceneViewExtensions.Remove(SceneViewExtension);
+
+		SceneViewExtension->RT_BaseColor = nullptr;
+		SceneViewExtension->RT_Normal = nullptr;
+		SceneViewExtension->RT_MRS = nullptr;
+		SceneViewExtension->RT_Depth = nullptr;
+		SceneViewExtension->RT_CustomStencil = nullptr;
+		SceneViewExtension->RT_CustomDepth = nullptr;
 		SceneViewExtension.Reset();
 	}
 
@@ -233,9 +491,12 @@ void UVrmSceneCaptureComponent2D::OnAttachmentChanged()
 {
 }
 
-void UVrmSceneCaptureComponent2D::ResizeRenderTargets() {
-	FIntPoint vs, bs;
-	UVrmBPFunctionLibrary::VRMGetViewportSize(vs, bs, true);
+void UVrmSceneCaptureComponent2D::ResizeRenderTargets(FIntPoint size) {
+
+
+	//FIntPoint vs, bs;
+	//UVrmBPFunctionLibrary::VRMGetViewportSize(vs, bs, true);
+	FIntPoint bs = size;
 
 	if (bs.X > 0 && bs.Y > 0)
 	{
@@ -262,142 +523,170 @@ void UVrmSceneCaptureComponent2D::ResizeRenderTargets() {
 			RT_Normal->ResizeTarget(bs.X, bs.Y);
 		}
 
+		if (RT_MRS)
+		{
+			RT_MRS->ResizeTarget(bs.X, bs.Y);
+		}
+
 		if (RT_Depth)
 		{
 			RT_Depth->ResizeTarget(bs.X, bs.Y);
+		}
+
+		if (RT_CustomStencil)
+		{
+			RT_CustomStencil->ResizeTarget(bs.X, bs.Y);
+		}
+
+		if (RT_CustomDepth)
+		{
+			RT_CustomDepth->ResizeTarget(bs.X, bs.Y);
 		}
 	}
 }
 
 
+
+
+
 void UVrmSceneCaptureComponent2D::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
+	using namespace VrmSceneCaptureLocal;
+
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
 	OnCameraTransformChanged();
 
-	ResizeRenderTargets();
+	FMatrix   NewProjectionMatrix = FMatrix::Identity;
+	FIntPoint ViewSize = FIntPoint::ZeroValue;
+	bool      bProjectionFound = false;
 
-	// ビューポートの縦横比
-	float ViewportAspectRatio = 0.0f;
-	bool bAspectRatioFound = false;
+	UWorld* World = GetWorld();
 
+	// Simulate In Editor / Eject(F8) 中は、ワールドは Game World だが実際に
+	// 画を出しているのはエディタのレベルビューポート（フリーカメラ）。
+	// LocalPlayer 側の投影データを見ると必ずズレるので、ここで経路を分ける。
+#if WITH_EDITOR
+	const bool bUseEditorView =
+		(GEditor != nullptr) &&
+		(GEditor->bIsSimulatingInEditor || World == nullptr || !World->IsGameWorld());
+#else
+	const bool bUseEditorView = false;
+#endif
 
-	// ゲーム画面として縦横比取得。のちにエディタでは上書きする
+	// ---------------------------------------------------------------
+	// ゲーム／PIE：主ビューが実際に使う投影データをそのまま受け取る。
+	// 軸拘束・レターボックス・シネカメラ・カメラシェイク・ニアプレーンが
+	// すべてここで解決されるため、FOV を組み直す必要はない。
+	// ---------------------------------------------------------------
+	if (!bUseEditorView && World && World->IsGameWorld())
 	{
-		if (UWorld* World = GetWorld())
+		if (ULocalPlayer* LocalPlayer = World->GetFirstLocalPlayerFromController())
 		{
-			if (UGameViewportClient* ViewportClient = World->GetGameViewport())
+			if (LocalPlayer->ViewportClient && LocalPlayer->ViewportClient->Viewport)
 			{
-				FViewport* Viewport = ViewportClient->Viewport;
-				if (Viewport)
+				FSceneViewProjectionData ProjectionData;
+				if (LocalPlayer->GetProjectionData(LocalPlayer->ViewportClient->Viewport, ProjectionData))
 				{
-					// ビューポートの実際の描画領域を取得（レターボックス/ピラーボックスを除いた領域）
-					FVector2D ViewRect;
-					ViewportClient->GetViewportSize(ViewRect);
-
-					int32 ViewWidth = ViewRect.X;
-					int32 ViewHeight = ViewRect.Y;
-
-					if (ViewHeight > 0)
-					{
-						ViewportAspectRatio = static_cast<float>(ViewWidth) / static_cast<float>(ViewHeight);
-						bAspectRatioFound = true;
-					}
+					NewProjectionMatrix = ProjectionData.ProjectionMatrix;
+					ViewSize = ProjectionData.GetConstrainedViewRect().Size();
+					bProjectionFound = true;
 				}
 			}
 		}
 	}
-
-
 #if WITH_EDITOR
-	// エディタの場合：アクティブなエディタビューポートから取得
-	if (GEditor && GEditor->GetActiveViewport())
+	// ---------------------------------------------------------------
+	// エディタ（非プレイ）／Simulate／Eject：レベルビューポートから再構築する。
+	// GEditor->GetActiveViewport() はフォーカス依存で別アセットエディタを
+	// 返し得るため使用しない。
+	// ---------------------------------------------------------------
+	else if (GEditor)
 	{
-		FViewport* EditorViewport = GEditor->GetActiveViewport();
-		if (EditorViewport)
+		FLevelEditorViewportClient* LevelClient = nullptr;
+
+		// このコンポーネントが属するワールドを表示しているビューポートを選ぶ。
+		// Simulate 中は IsSimulateInEditorViewport() が立っているものが正解。
+		for (FLevelEditorViewportClient* Candidate : GEditor->GetLevelViewportClients())
 		{
-			FIntPoint ViewportSize = EditorViewport->GetSizeXY();
-			if (ViewportSize.Y > 0)
+			if (Candidate == nullptr || Candidate->Viewport == nullptr || !Candidate->IsVisible())
 			{
-				// デフォルトは物理サイズから計算
-				ViewportAspectRatio = static_cast<float>(ViewportSize.X) / static_cast<float>(ViewportSize.Y);
+				continue;
+			}
+			if (World != nullptr && Candidate->GetWorld() != World)
+			{
+				continue;
+			}
+			if (GEditor->bIsSimulatingInEditor && !Candidate->IsSimulateInEditorViewport())
+			{
+				continue;
+			}
+			LevelClient = Candidate;
+			break;
+		}
 
-				// 以下、レター・ピラー対応
-				bool b1, b2, b3;
-				UVrmBPFunctionLibrary::VRMGetPlayMode(b1, b2, b3);
-				if (b1 == false || b2 == true) {
-					FViewportClient* ViewportClient = EditorViewport->GetClient();
-					if (ViewportClient)
-					{
-						// FLevelEditorViewportClientの場合、AspectRatio制約を確認
-						// Note: Cast<>は安全な動的キャストで、失敗時にnullptrを返す
-						const FLevelEditorViewportClient* LevelClient = StaticCast<FLevelEditorViewportClient*>(ViewportClient);
-						//if (FLevelEditorViewportClient* LevelViewportClient =
-						//	Cast<FLevelEditorViewportClient>(ViewportClient))
-						if (LevelClient)
-						{
-							if (LevelClient->IsAspectRatioConstrained()){
-								// AspectRatio制約が設定されている場合はそれを使用
-								if (LevelClient->AspectRatio > 0.0f)
-								{
-									ViewportAspectRatio = LevelClient->AspectRatio;
-								}
-							}
-						}
-					}
-				}
+		if (LevelClient == nullptr &&
+			GCurrentLevelEditingViewportClient != nullptr &&
+			GCurrentLevelEditingViewportClient->Viewport != nullptr)
+		{
+			LevelClient = GCurrentLevelEditingViewportClient;
+		}
 
-				bAspectRatioFound = true;
+		// Simulate 中はプレイヤーカメラではなくエディタのフリーカメラが画になる。
+		// 投影行列だけでなく位置・回転もこちらから取らないとズレる
+		// （冒頭の OnCameraTransformChanged() の結果をここで上書きする）。
+		if (LevelClient && LevelClient->Viewport)
+		{
+			SetWorldLocationAndRotation(
+				LevelClient->GetViewLocation(),
+				LevelClient->GetViewRotation());
+		}
+
+		// オルソは編集用ビューでのみ発生し、投影系が別物なので追従しない
+		if (LevelClient && LevelClient->Viewport && !LevelClient->IsOrtho())
+		{
+			const FIntPoint ViewportSize = LevelClient->Viewport->GetSizeXY();
+			if (ViewportSize.X > 0 && ViewportSize.Y > 0)
+			{
+				const bool  bConstrained = LevelClient->IsAspectRatioConstrained();
+				const float ConstrainedAspect = LevelClient->AspectRatio;
+
+				NewProjectionMatrix = BuildPerspectiveMatrix(
+					LevelClient->ViewFOV,
+					ViewportSize,
+					bConstrained,
+					ConstrainedAspect,
+					GNearClippingPlane,
+					GetDefault<ULevelEditorViewportSettings>()->AspectRatioAxisConstraint);
+
+				ViewSize = ComputeConstrainedSize(ViewportSize, bConstrained, ConstrainedAspect);
+				bProjectionFound = true;
 			}
 		}
 	}
 #endif
 
-
-
-	FTransform transform;
-	float fovDegree;
-	UVrmBPFunctionLibrary::VRMGetCameraTransform(this, 0, false, transform, fovDegree);
-
+	if (!bProjectionFound || ViewSize.X <= 0 || ViewSize.Y <= 0)
 	{
-		// PIEでは画角度を補正する。
-		bool b1, b2, b3;
-		UVrmBPFunctionLibrary::VRMGetPlayMode(b1, b2, b3);
-		if (b1 == true && b2 == false) {
-			float ff = FMath::DegreesToRadians(fovDegree);
-			ff = 2 * FMath::Atan( FMath::Tan(ff / 2.0) * (ViewportAspectRatio / 1.777));
-			fovDegree = FMath::RadiansToDegrees(ff);
-		}
+		// 取得できないフレームは前回の設定を維持する（別画角で 1 フレーム描かない）
+		return;
 	}
 
-	// RenderTargetのサイズに関わらず、カメラと同じFOVを使用
-	this->FOVAngle = fovDegree;
+	// RT のアスペクトはビュー矩形に必ず一致させる。
+	// ズレると合成結果が非等方に伸びるため、投影行列を決めた後に呼ぶ。
+	ResizeRenderTargets(ViewSize);
 
+	bUseCustomProjectionMatrix = true;
+	CustomProjectionMatrix = NewProjectionMatrix;
 
-	// ビューポートの縦横比が取得できた場合、カスタム投影行列を設定
-	if (bAspectRatioFound && ViewportAspectRatio > 0.0f)
+	// 投影行列が優先されるが、FOVAngle / ProjectionType を参照する箇所があるため整合させる。
+	// 透視行列は M[2][3] == 1、オルソは 0。
+	const bool bPerspective = !FMath::IsNearlyZero(NewProjectionMatrix.M[2][3]);
+	ProjectionType = bPerspective ? ECameraProjectionMode::Perspective : ECameraProjectionMode::Orthographic;
+
+	if (bPerspective && NewProjectionMatrix.M[0][0] > UE_KINDA_SMALL_NUMBER)
 	{
-		// パースペクティブ投影の場合のみカスタム投影行列を設定
-		if (ProjectionType == ECameraProjectionMode::Perspective)
-		{
-			const float HalfFOVRadians = FMath::DegreesToRadians(FOVAngle) * 0.5f;
-			const float NearPlane = bOverride_CustomNearClippingPlane ? CustomNearClippingPlane : GNearClippingPlane;
-
-			// ビューポートの縦横比を使用してパースペクティブ投影行列を作成
-			// UE 5.7では4パラメータ (HalfFOV, Width, Height, MinZ) が必要
-			const float Width = ViewportAspectRatio;
-			const float Height = 1.0f;
-			FMatrix ProjectionMatrix = FReversedZPerspectiveMatrix(HalfFOVRadians, Width, Height, NearPlane);
-
-			this->bUseCustomProjectionMatrix = true;
-			this->CustomProjectionMatrix = ProjectionMatrix;
-		}
-		else
-		{
-			// オルソグラフィック投影の場合はカスタム投影行列を無効化
-			this->bUseCustomProjectionMatrix = false;
-		}
+		FOVAngle = FMath::RadiansToDegrees(2.0f * FMath::Atan(1.0f / NewProjectionMatrix.M[0][0]));
 	}
 }
 

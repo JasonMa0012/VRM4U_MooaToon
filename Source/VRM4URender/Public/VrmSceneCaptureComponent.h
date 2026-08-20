@@ -29,8 +29,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Capture Settings")
 	TObjectPtr<UTextureRenderTarget2D> RT_Normal;
 
+	/** Metallic / Specular / Roughness (GBufferB) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Capture Settings")
+	TObjectPtr<UTextureRenderTarget2D> RT_MRS;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Capture Settings")
 	TObjectPtr<UTextureRenderTarget2D> RT_Depth;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Capture Settings")
+	TObjectPtr<UTextureRenderTarget2D> RT_CustomStencil;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Capture Settings")
+	TObjectPtr<UTextureRenderTarget2D> RT_CustomDepth;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Capture Settings", meta = (UIMin = 1.0, UIMax = 10.0))
 	float RenderTargetResolutionDivisorX = 1.f;
@@ -56,7 +66,7 @@ private:
 #endif
 	void OnCameraTransformChanged();
 
-	void ResizeRenderTargets();
+	void ResizeRenderTargets(FIntPoint size);
 
 private:
 	/** This scene view extension is used to get ahold of views during the setup process. */

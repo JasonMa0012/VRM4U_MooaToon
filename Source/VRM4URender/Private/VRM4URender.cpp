@@ -324,33 +324,19 @@ void FVRM4URenderModule::AddSubstrateMRSCopyPass(FRDGBuilder& GraphBuilder, cons
 #endif
 
 bool FVRM4URenderModule::isCaptureTarget(const FSceneView* View) {
-
-	bool bCapture = false;
-
-	bool bPlay = false;
-	bool bSIE = false;
-	bool bEditor = false;
-	UVrmBPFunctionLibrary::VRMGetPlayMode(bPlay, bSIE, bEditor);
-
-	UWorld* World = View->Family->Scene->GetWorld();
-	if (World) {
-		EWorldType::Type WorldType = World->WorldType;
-
-		if (bPlay) {
-			switch (WorldType) {
-			case EWorldType::Game:
-			case EWorldType::PIE:
-				bCapture = true;
-				break;
-			}
-		} else {
-			switch (WorldType) {
-			case EWorldType::Editor:
-				bCapture = true;
-				break;
-			}
-		}
+	if (View == nullptr || View->Family == nullptr)
+	{
+		return false;
 	}
+
+	// Mooa: This function is called from render-thread delegates. Do not query
+	// GWorld, GEditor, or UWorld here; Debug builds validate those accesses.
+	// The view flags already distinguish the main editor/game view from the
+	// scene-capture and preview views that VRM4U must ignore.
+	bool bCapture = !View->bIsSceneCapture
+		&& !View->bIsReflectionCapture
+		&& !View->bIsPlanarReflection
+		&& !View->Family->bThumbnailRendering;
 	if (View->bIsGameView) {
 		bCapture = true;
 	}

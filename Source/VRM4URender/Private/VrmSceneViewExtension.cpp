@@ -426,23 +426,15 @@ void FVrmSceneViewExtension::PostRenderBasePassDeferred_RenderThread(FRDGBuilder
 	const auto FeatureLevel = InView.GetFeatureLevel();
 	if (FeatureLevel <= ERHIFeatureLevel::SM5) return;
 
+	// Mooa: This callback runs on the render thread. Use view metadata instead
+	// of dereferencing a UWorld, which is not thread-safe in Debug builds.
+	if (InView.Family == nullptr
+		|| InView.Family->bThumbnailRendering
+		|| InView.bIsSceneCapture
+		|| InView.bIsReflectionCapture
+		|| InView.bIsPlanarReflection)
 	{
-		bool bActive = false;
-
-		//bool bCapture = InView.bIsSceneCapture;
-
-		auto t = InView.Family->Scene->GetWorld()->WorldType;
-		switch (t) {
-		case EWorldType::Editor:
-		case EWorldType::Game:
-		case EWorldType::PIE:
-			bActive = true;
-			break;
-		}
-
-		if (bActive == false) {
-			return;
-		}
+		return;
 	}
 
 	//check(InView.bIsViewInfo);

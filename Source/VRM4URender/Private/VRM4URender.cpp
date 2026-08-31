@@ -324,15 +324,16 @@ void FVRM4URenderModule::AddSubstrateMRSCopyPass(FRDGBuilder& GraphBuilder, cons
 #endif
 
 bool FVRM4URenderModule::isCaptureTarget(const FSceneView* View) {
+	// Mooa Avoid UWorld access from VRM4U render-thread callbacks
 	if (View == nullptr || View->Family == nullptr)
 	{
 		return false;
 	}
 
-	// Mooa: This function is called from render-thread delegates. Do not query
-	// GWorld, GEditor, or UWorld here; Debug builds validate those accesses.
-	// The view flags already distinguish the main editor/game view from the
-	// scene-capture and preview views that VRM4U must ignore.
+	// This function is called from render-thread delegates. Do not query GWorld,
+	// GEditor, or UWorld here; Debug builds validate those accesses. The view
+	// flags already distinguish the main editor/game view from the scene-capture
+	// and preview views that VRM4U must ignore.
 	bool bCapture = !View->bIsSceneCapture
 		&& !View->bIsReflectionCapture
 		&& !View->bIsPlanarReflection
@@ -347,6 +348,7 @@ bool FVRM4URenderModule::isCaptureTarget(const FSceneView* View) {
 		bCapture = false;
 	}
 
+	// Mooa End
 	return bCapture;
 }
 

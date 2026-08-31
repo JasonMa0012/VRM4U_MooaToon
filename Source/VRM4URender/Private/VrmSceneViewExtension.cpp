@@ -426,8 +426,9 @@ void FVrmSceneViewExtension::PostRenderBasePassDeferred_RenderThread(FRDGBuilder
 	const auto FeatureLevel = InView.GetFeatureLevel();
 	if (FeatureLevel <= ERHIFeatureLevel::SM5) return;
 
-	// Mooa: This callback runs on the render thread. Use view metadata instead
-	// of dereferencing a UWorld, which is not thread-safe in Debug builds.
+	// Mooa Avoid UWorld access from this render-thread callback
+	// This callback runs on the render thread. Use view metadata instead of
+	// dereferencing a UWorld, which is not thread-safe in Debug builds.
 	if (InView.Family == nullptr
 		|| InView.Family->bThumbnailRendering
 		|| InView.bIsSceneCapture
@@ -436,6 +437,7 @@ void FVrmSceneViewExtension::PostRenderBasePassDeferred_RenderThread(FRDGBuilder
 	{
 		return;
 	}
+	// Mooa End
 
 	//check(InView.bIsViewInfo);
 	//auto ViewInfo = static_cast<const FViewInfo*>(&InView);

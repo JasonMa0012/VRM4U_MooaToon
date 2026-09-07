@@ -206,6 +206,8 @@ UObject* UVRM4UImporterFactory::FactoryCreateBinary(UClass* InClass, UObject* In
 	}	
 
 	static UVrmImportUI* ImportUI = nullptr;
+	if (!bUseProvidedImportOptions)
+	{
 #if	UE_VERSION_OLDER_THAN(5,0,0)
 	TAssetPtr<UObject> refPointerToLic;
 #else
@@ -304,8 +306,8 @@ UObject* UVRM4UImporterFactory::FactoryCreateBinary(UClass* InClass, UObject* In
 			if (GEditor){
 				auto* s = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
 				if (s && ImportUI->Thumbnail) {
-					s->OpenEditorForAsset((UObject*)ImportUI->Thumbnail);
-					s->CloseAllEditorsForAsset((UObject*)ImportUI->Thumbnail);
+					s->OpenEditorForAsset(ImportUI->Thumbnail);
+					s->CloseAllEditorsForAsset(ImportUI->Thumbnail);
 				}
 			}
 #endif
@@ -366,6 +368,7 @@ UObject* UVRM4UImporterFactory::FactoryCreateBinary(UClass* InClass, UObject* In
 		}
 
 	}
+	}
 
 	//static ConstructorHelpers::FObjectFinder<UObject> MatClass(TEXT("/Game/test/NewMaterial.NewMaterial"));
 	//static ConstructorHelpers::FObjectFinder<UClass> MatClass(TEXT("Blueprint'/VRM4U/VrmObjectListBP.VrmObjectListBP_C'"));
@@ -377,7 +380,10 @@ UObject* UVRM4UImporterFactory::FactoryCreateBinary(UClass* InClass, UObject* In
 	//UObject* objFinder = NewObject<UVrmAssetListObject>(InParent, NAME_None, RF_Transactional);
 
 	auto& importOption = VRMConverter::Options::Get();
-	importOption.SetVrmOption(ImportUI->GenerateOptionData());
+	importOption.SetVrmOption(
+		bUseProvidedImportOptions
+			? &ProvidedImportOptions
+			: ImportUI->GenerateOptionData());
 
 
 #if	UE_VERSION_OLDER_THAN(5,0,0)

@@ -8,18 +8,22 @@ public class VRM4UImporter : ModuleRules
 	{
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		PrivateDependencyModuleNames.AddRange(
+		PublicDependencyModuleNames.AddRange(
 			new string[] {
 				"Core",
 				"CoreUObject",
+				"Engine",
+				"VRM4U",
+			});
+
+		PrivateDependencyModuleNames.AddRange(
+			new string[] {
 				"InputCore",
 				"EditorStyle",
 				"ApplicationCore",
-				"Engine",
 				"UnrealEd",
 				"Slate",
 				"SlateCore",
-				"VRM4U",
 				"VRM4ULoader",
 
 				"AnimGraphRuntime",

@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "EditorReimportHandler.h"
 #include "Factories/Factory.h"
+#include "VrmUtil.h"
 #include "VRM4UImporterFactory.generated.h"
 
 UCLASS()
@@ -28,7 +29,10 @@ class UVRM4UImporterFactory : public UFactory, public FReimportHandler
 	// End of FReimportHandler interface
 
 protected:
+	friend class UVrmImporterBPFunctionLibrary;
 
 	FString fullFileName;
 	class UVrmAssetListObject* ReimportBase = nullptr;
+	bool bUseProvidedImportOptions = false;
+	FImportOptionData ProvidedImportOptions;
 };

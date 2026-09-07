@@ -27,3 +27,7 @@ if (isGame() == False):
         print(f"VRMMenu Success: {editor_utility_object_path}")
     else:
         print(f"VRMMenu Failed: {editor_utility_object_path}")
+
+    # VRM4U AI integration is optional. Older engine versions and editors
+    # without ToolsetRegistry continue to use VRM4U without loading it.
+    import vrm4u_ai

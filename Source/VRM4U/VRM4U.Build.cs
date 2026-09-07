@@ -66,6 +66,8 @@ public class VRM4U : ModuleRules
 			}
 			);
 
+		bool bUseMovieRenderPipeline = (Target.Platform != UnrealTargetPlatform.Android && Target.Platform != UnrealTargetPlatform.IOS);
+
 		if (Target.bBuildEditor)
 		{
 			PrivateDependencyModuleNames.Add("UnrealEd");
@@ -80,7 +82,10 @@ public class VRM4U : ModuleRules
 			{
 				if (Version2.MajorVersion == 5)
 				{
-					PrivateDependencyModuleNames.Add("MovieRenderPipelineEditor");
+					if (bUseMovieRenderPipeline)
+					{
+						PrivateDependencyModuleNames.Add("MovieRenderPipelineEditor");
+					}
 					PrivateDependencyModuleNames.Add("ControlRigDeveloper");
 
 				}
@@ -90,7 +95,7 @@ public class VRM4U : ModuleRules
 			BuildVersion Version2;
 			if (BuildVersion.TryRead(BuildVersion.GetDefaultFileName(), out Version2))
 			{
-				if (Version2.MajorVersion == 5)
+				if (Version2.MajorVersion == 5 && bUseMovieRenderPipeline)
 				{
 					PrivateDependencyModuleNames.Add("MovieRenderPipelineCore");
 				}

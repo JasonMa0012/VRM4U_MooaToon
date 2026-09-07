@@ -487,10 +487,6 @@ void UVrmSceneCaptureComponent2D::OnCameraTransformChanged() {
 	this->SetWorldTransform(transform);
 }
 
-void UVrmSceneCaptureComponent2D::OnAttachmentChanged()
-{
-}
-
 void UVrmSceneCaptureComponent2D::ResizeRenderTargets(FIntPoint size) {
 
 

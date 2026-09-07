@@ -14,6 +14,9 @@
 #include "PackageTools.h"
 #include "Misc/Paths.h"
 #include "Engine/SkeletalMesh.h"
+// Mooa Fix UE5.7 typed thumbnail asset-editor calls.
+#include "Engine/Texture2D.h"
+// Mooa End
 #include "EditorFramework/AssetImportData.h"
 #include "Components/SkeletalMeshComponent.h"
 //#include "Runtime/CoreUObject/Public/UObject/ConstructorHelpers.h"

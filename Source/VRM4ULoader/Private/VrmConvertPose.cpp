@@ -344,7 +344,7 @@ namespace {
 			FFloatCurve& Curve = PreviewAnimation->RawCurveData.FloatCurves.Last();
 			Curve.SetCurveTypeFlag(AACF_Editable, true);
 #if UE_VERSION_OLDER_THAN(5,0,0)
-			Curve.SetCurveTypeFlag(AACF_DriveMorphTarget, true);
+			Skeleton->AccumulateCurveMetaData(CurveName.DisplayName, false, true);
 #elif UE_VERSION_OLDER_THAN(5,3,0)
 			Skeleton->AccumulateCurveMetaData(CurveName.DisplayName, false, true);
 #else

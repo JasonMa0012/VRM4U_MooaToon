@@ -3,7 +3,7 @@ if not %errorlevel% == 0 (
     echo [ERROR] :P
     goto err
 )
-call build_old.bat
+call build_4.bat
 if not %errorlevel% == 0 (
     echo [ERROR] :P
     goto err

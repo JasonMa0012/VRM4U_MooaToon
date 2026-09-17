@@ -84,12 +84,12 @@
     {
       "_comment_vrm4u_dummy": "IKRig Plugin for Use UE5.0+",
       "Name": "IKRig",
-      "Enabled": true,
+      "Enabled": true
     },
     {
       "_comment_vrm4u_dummy": "OSC Plugin for Use UE5.0+",
       "Name": "OSC",
-      "Enabled": true,
+      "Enabled": true
     }
   ],
   "_comment_vrm4u_dummy": "comment"

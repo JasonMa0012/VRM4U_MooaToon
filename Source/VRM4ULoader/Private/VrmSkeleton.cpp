@@ -130,7 +130,7 @@ static FMatrix convertAiMatToFMatrix(aiMatrix4x4 t, bool bOffsetMode = false) {
 		// the already-converted translation while rotating the local basis.
 		const FVector Translation = m.GetOrigin();
 		m.SetOrigin(FVector::ZeroVector);
-		const FMatrix Basis = FQuat(FVector::ForwardVector, -PI / 2.f).ToMatrix();
+		const FMatrix Basis = FQuatRotationMatrix(FQuat(FVector::ForwardVector, -PI / 2.f));
 		m = Basis * m * Basis.Inverse();
 		m.SetOrigin(Translation);
 	}

@@ -362,7 +362,9 @@ bool VRMConverter::ConvertMorphTarget(UVrmAssetListObject *vrmAssetList) {
 					MorphLODModel.NumBaseMeshVerts = MorphDeltas.Num();
 					MorphLODModel.SectionIndices.Add(0);
 					MorphLODModel.Vertices = MorphDeltas;
+#if !UE_VERSION_OLDER_THAN(5,0,0)
 					MorphLODModel.NumVertices = MorphDeltas.Num();
+#endif
 
 #if	UE_VERSION_OLDER_THAN(5,0,0)
 					if (mt->MorphLODModels.IsValidIndex(0) == false) {

@@ -32,7 +32,9 @@ public class VRM4ULoader : ModuleRules
 			if (unityBuildProperty != null)
 			{
 				// UE5.8+
-			//	unityBuildProperty.SetValue(this, false);
+				// Mooa UE5.8: Keep file-local conversion helpers out of the Unity translation unit.
+				unityBuildProperty.SetValue(this, false);
+				// Mooa End
 			}
 		}
 		{
@@ -40,7 +42,9 @@ public class VRM4ULoader : ModuleRules
 			var unityProperty = GetType().GetProperty("bUseUnity", BindingFlags.Public | BindingFlags.Instance);
 			if (unityProperty != null)
 			{
-			//	unityProperty.SetValue(this, false);
+				// Mooa UE5.7 and earlier: Match the non-Unity behavior above when this property exists.
+				unityProperty.SetValue(this, false);
+				// Mooa End
 			}
 		}
 

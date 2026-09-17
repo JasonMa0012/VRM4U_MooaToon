@@ -6,6 +6,12 @@
 #include "UObject/ObjectMacros.h"
 #include "Misc/Paths.h"
 
+// Mooa UE5.8: Include the editor asset subsystem declarations used by the editor-only close helper.
+#if WITH_EDITOR
+#include "Subsystems/AssetEditorSubsystem.h"
+#endif
+// Mooa End
+
 #include "VrmAssetListObject.h"
 #include "VrmMetaObject.h"
 #if	UE_VERSION_OLDER_THAN(5,1,0)

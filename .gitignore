@@ -32,3 +32,7 @@
 *.app
 Intermediate
 Binaries
+
+// Mooa
+**/__pycache__/**
+// Mooa End

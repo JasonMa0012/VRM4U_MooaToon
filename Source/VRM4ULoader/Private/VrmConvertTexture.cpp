@@ -40,10 +40,6 @@
 #include <assimp/GltfMaterial.h>
 #include <assimp/vrm/vrmmeta.h>
 
-#if	UE_VERSION_OLDER_THAN(4,23,0)
-#define TRACE_CPUPROFILER_EVENT_SCOPE(a)
-#else
-#endif
 
 
 namespace {
@@ -525,9 +521,6 @@ namespace {
 
 	UMaterial* CreateDefaultMaterial(UVrmAssetListObject *vrmAssetList) {
 
-#if	UE_VERSION_OLDER_THAN(4,20,0)
-		UMaterial* UnrealMaterial = VRM4U_NewObject<UMaterial>(vrmAssetList->Package, TEXT("M_BaseMaterial"), RF_Standalone | RF_Public);
-#else
 		UMaterial* UnrealMaterial = nullptr;
 		if (vrmAssetList->Package == GetTransientPackage()) {
 			UnrealMaterial = VRM4U_NewObject<UMaterial>(GetTransientPackage(), NAME_None, EObjectFlags::RF_Public | RF_Transient, nullptr);
@@ -535,7 +528,6 @@ namespace {
 		else {
 			UnrealMaterial = VRM4U_NewObject<UMaterial>(vrmAssetList->Package, TEXT("M_BaseMaterial"), RF_Standalone | RF_Public, nullptr);
 		}
-#endif
 
 		if (UnrealMaterial != NULL)
 		{
@@ -646,11 +638,7 @@ namespace {
 		VRM4U_TMP_COMPARE(TwoSided);
 		VRM4U_TMP_COMPARE(DitheredLODTransition);
 		VRM4U_TMP_COMPARE(bCastDynamicShadowAsMasked);
-#if	UE_VERSION_OLDER_THAN(4,23,0)
-		VRM4U_TMP_COMPARE(GetShadingModel());
-#else
 		VRM4U_TMP_COMPARE(GetShadingModels());
-#endif
 #undef VRM4U_TMP_COMPARE
 
 		return true;

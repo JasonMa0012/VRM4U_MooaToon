@@ -18,15 +18,8 @@
 #include <assimp/GltfMaterial.h>
 #include <assimp/vrm/vrmmeta.h>
 
-#if	UE_VERSION_OLDER_THAN(4,23,0)
-#define TRACE_CPUPROFILER_EVENT_SCOPE(a)
-#define TRACE_CPUPROFILER_EVENT_SCOPE_TEXT(a)
-#else
-#endif
 
-namespace {
-	class VrmLocalAsyncAsset {
-	public:
+struct FVrmLocalAsyncAsset {
 		TArray<bool> NormalBoolTable;
 		TArray<bool> MaskBoolTable;
 		TArray<uint8> vrmLocalRes;
@@ -44,10 +37,8 @@ namespace {
 			vrmLocalRes.Empty();
 		}
 	};
-	VrmLocalAsyncAsset localAsset;
-}
 
-static bool ConvTex(UVrmAssetListObject* vrmAssetList, const aiScene* mScenePtr, const FImportOptionData* option, const int TexCount, const int SubCount) {
+static bool ConvTex(FVrmLocalAsyncAsset& localAsset, UVrmAssetListObject* vrmAssetList, const aiScene* mScenePtr, const FImportOptionData* option, const int TexCount, const int SubCount) {
 	if (vrmAssetList == nullptr || mScenePtr == nullptr) {
 		return true;
 	}
@@ -159,8 +150,16 @@ FVrmAsyncLoadAction::FVrmAsyncLoadAction(const FLatentActionInfo& LatentInfo, FV
 	: ExecutionFunction(LatentInfo.ExecutionFunction)
 	, OutputLink(LatentInfo.Linkage)
 	, CallbackTarget(LatentInfo.CallbackTarget)
+	, LocalAsset(MakeUnique<FVrmLocalAsyncAsset>())
 	, param(p)
 	{
+}
+
+FVrmAsyncLoadAction::~FVrmAsyncLoadAction() {
+	if (t2.IsValid() && !t2->IsComplete()) {
+		FTaskGraphInterface::Get().WaitUntilTaskCompletes(t2);
+	}
+	LocalAsset->Reset();
 }
 
 
@@ -177,10 +176,7 @@ void FVrmAsyncLoadAction::UpdateOperation(FLatentResponse& Response)
 		Finish,
 	};
 
-	static int TexCount = 0;
-	static int SubCount = 0;
-	static int FrameCount = 0;
-	static double StartTime = 0.f;
+	FVrmLocalAsyncAsset& localAsset = *LocalAsset;
 	++FrameCount;
 
 	auto logFunc = [&](FString str="") {
@@ -201,10 +197,10 @@ void FVrmAsyncLoadAction::UpdateOperation(FLatentResponse& Response)
 		++SequenceCount;
 
 
-		TFunction< void() > f = [&] {
-			if (FFileHelper::LoadFileToArray(localAsset.vrmLocalRes, *param.filepath)) {
-				param.pData = localAsset.vrmLocalRes.GetData();
-				param.dataSize = localAsset.vrmLocalRes.Num();
+		TFunction< void() > f = [this] {
+			if (FFileHelper::LoadFileToArray(LocalAsset->vrmLocalRes, *param.filepath)) {
+				param.pData = LocalAsset->vrmLocalRes.GetData();
+				param.dataSize = LocalAsset->vrmLocalRes.Num();
 			}
 		};
 
@@ -248,10 +244,10 @@ void FVrmAsyncLoadAction::UpdateOperation(FLatentResponse& Response)
 		if (TexCount < (int)localAsset.ScenePtr->mNumTextures) {
 
 			if (SubCount == 0) {
-				ConvTex(param.OutVrmAsset, localAsset.ScenePtr, &param.OptionForRuntimeLoad, TexCount, 0);
+				ConvTex(localAsset, param.OutVrmAsset, localAsset.ScenePtr, &param.OptionForRuntimeLoad, TexCount, 0);
 			}
 			if (SubCount == 2) {
-				ConvTex(param.OutVrmAsset, localAsset.ScenePtr, &param.OptionForRuntimeLoad, TexCount, 1);
+				ConvTex(localAsset, param.OutVrmAsset, localAsset.ScenePtr, &param.OptionForRuntimeLoad, TexCount, 1);
 			}
 			++SubCount;
 
@@ -273,6 +269,9 @@ void FVrmAsyncLoadAction::UpdateOperation(FLatentResponse& Response)
 		logFunc();
 		++SequenceCount;
 		if (param.pData) {
+			VRMConverter::Options LoadOptions(VRMConverter::Options::Get());
+			LoadOptions.SetVrmOption(&param.OptionForRuntimeLoad);
+			VRMConverter::Options::Scope OptionsScope(LoadOptions);
 			ULoaderBPFunctionLibrary::LoadVRMFileFromMemory(param.InVrmAsset, param.OutVrmAsset, param.filepath, param.pData, param.dataSize);
 		} else {
 			ULoaderBPFunctionLibrary::LoadVRMFile(param.InVrmAsset, param.OutVrmAsset, param.filepath, param.OptionForRuntimeLoad);

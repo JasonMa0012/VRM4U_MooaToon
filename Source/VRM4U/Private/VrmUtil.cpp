@@ -19,14 +19,9 @@
 #include "VrmAssetUserData.h"
 #endif
 
-#if	UE_VERSION_OLDER_THAN(4,26,0)
-#include "AssetRegistryModule.h"
-#include "ARFilter.h"
-#else
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetRegistry/ARFilter.h"
 #include "AssetRegistry/AssetData.h"
-#endif
 
 
 void FImportOptionData::init() {
